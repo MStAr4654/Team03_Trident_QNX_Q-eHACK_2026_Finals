@@ -7,7 +7,6 @@
 [![QNX Neutrino](https://img.shields.io/badge/QNX-Neutrino%208.0-blue.svg)](https://blackberry.qnx.com)
 [![POSIX Compliant](https://img.shields.io/badge/POSIX-Compliant-green.svg)](https://pubs.opengroup.org/onlinepubs/9699919799/)
 [![Real-Time](https://img.shields.io/badge/Real--Time-Hard%20RT-red.svg)](https://www.qnx.com)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 

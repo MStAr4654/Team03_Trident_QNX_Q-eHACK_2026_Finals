@@ -19,7 +19,6 @@ HMDS is a production-grade, safety-critical real-time system that demonstrates *
 - ✅ **Engineering Determinism** - SCHED_FIFO/RR scheduling, APS CPU partitioning, bounded IPC latency (<10μs pulses)
 - ✅ **Fault Tolerance** - Watchdog auto-restart with RTO < 1.5s, tested under CPU hog, memory pressure, interrupt storms
 - ✅ **Real-Time Metrics** - QNX Momentics profiling data: 100ms loop with <2ms jitter
-- ✅ **Hardware Integration** - GPIO LEDs, Raspberry Pi deployment, physical hardware demonstration
 
 This isn't just a demo—it's a reference implementation of QNX best practices suitable for automotive ADAS, industrial control, medical devices, and aerospace applications.
 
@@ -64,12 +63,12 @@ This isn't just a demo—it's a reference implementation of QNX best practices s
 │                    └─────────────────┘                                │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
-         ▲                                              ▲
-         │                                              │
-   ┌─────┴──────┐                              ┌───────┴────────┐
-   │ Radar Sim  │                              │ GPIO Resource  │
-   │ (Qnet Node)│                              │    Manager     │
-   └────────────┘                              └────────────────┘
+         ▲                                            
+         │                                              
+   ┌─────┴──────┐                              
+   │ Radar Sim  │                              
+   │ (Qnet Node)│                              
+   └────────────┘                              
 ```
 
 ### Design Philosophy: The Deterministic Mindset
@@ -96,7 +95,7 @@ This isn't just a demo—it's a reference implementation of QNX best practices s
 | **2** | **Message Passing** | QNX pulses for async IPC: PULSE_MISSILE_DETECTED, PULSE_TRACK_UPDATE, PULSE_INTERCEPT_SOLUTION. Bounded latency <10μs. | `src/detection_task.c`, `include/hmds_common.h` |
 | **3** | **Real-Time Scheduling** | Priority 50 (SCHED_FIFO) for intercept → 45 (RR) → 30 (RR) → 10 (RR). Priority inheritance on shared resources. | `src/main.c:spawn_task_process()` |
 | **4** | **Interrupt Handling** | Radar sensor events delivered as pulses (async). Interrupt-to-pulse conversion via ISR. | `sim/radar_sim.c` - MsgSendPulse |
-| **5** | **Resource Managers** | GPIO LEDs exposed as `/dev/gpio*`. Radar feed as `/dev/hmds/radar_feed`. Clean device abstraction. | `src/launch_command.c:gpio_*()` |
+| **5** | **Resource Managers** | Radar feed as `/dev/hmds/radar_feed`. Clean device abstraction. | `src/launch_command.c:gpio_*()` |
 | **6** | **Qnet (Distributed)** | Cross-node radar feed from remote sensor (Node 1). Transparent IPC across machines. | `src/qnet_utils.c`, `QNET_DEPLOYMENT_GUIDE.md` |
 | **7** | **APS (CPU Partitions)** | 40% CPU guaranteed to intercept, 30% to tracking, 30% to housekeeping. Prevents CPU starvation under load. | `QNET_DEPLOYMENT_GUIDE.md` - APS configuration |
 | **8** | **Memory Protection** | MMU isolates each process. Shared memory explicitly mapped via mmap(). | `src/main.c:shm_init()` - PROT_READ\|WRITE, MAP_SHARED |
@@ -174,11 +173,9 @@ Shared Memory Read: 120 ns          (cache-line access time)
 | Test Scenario | System Behavior | RTO Measured |
 |---------------|----------------|--------------|
 | **CPU Hog** (100% load) | Intercept task still gets CPU via APS | N/A (stable) |
-| **Memory Pressure** (90% RAM) | No degradation, no OOM kills | N/A (stable) |
 | **Interrupt Storm** (100k/sec) | All tasks responsive, pulse latency <15μs | N/A (stable) |
 | **Kill -9** (SIGKILL task) | Watchdog restart | 1.2s ✓ |
 | **Segfault** (null pointer) | Watchdog restart | 1.3s ✓ |
-| **Deadlock** (hung loop) | Watchdog restart | 1.5s ✓ |
 
 **Mean RTO**: 1.3 seconds | **Max RTO**: 1.5 seconds | **Target**: <2.0 seconds ✅
 
@@ -356,39 +353,9 @@ if (confidence >= 0.55 && stable_for >= 2.0s) {
 
 ---
 
-## 🔌 Hardware Integration
-
-### GPIO Resource Manager (QNX Concept #5)
-
-```c
-// GPIO pins exposed as device files
-#define GPIO_LAUNCH_LED      "/dev/gpio17"   // Red: Launch authorized
-#define GPIO_INTERCEPT_LED   "/dev/gpio27"   // Green: Intercept confirmed
-#define GPIO_ALERT_LED       "/dev/gpio22"   // Yellow: Threat detected
-
-// Access pattern
-int fd = open(GPIO_LAUNCH_LED, O_RDWR);
-write(fd, "1", 1);  // Turn on LED
-close(fd);
-```
-
 **Why Resource Managers**:
-- Treats hardware as files (UNIX philosophy)
 - Clean abstraction: user-space code doesn't need kernel drivers
 - QNX resource managers run in user-space, not kernel—microkernel advantage
-
-### Raspberry Pi 4 Deployment
-
-| Component | Specification |
-|-----------|--------------|
-| **CPU** | Broadcom BCM2711 (Quad-core Cortex-A72, ARMv8, 1.5GHz) |
-| **RAM** | 4 GB LPDDR4 |
-| **OS** | QNX Neutrino RTOS 8.0 (aarch64) |
-| **Compiler** | `aarch64-unknown-nto-qnx8.0.0-gcc` |
-| **GPIO** | 40-pin header, BCM numbering |
-| **Network** | Gigabit Ethernet (for Qnet distributed mode) |
-
----
 
 ## 📡 Qnet Distributed Architecture
 
@@ -658,47 +625,6 @@ Jitter:
 
 ---
 
-## 🧪 Testing & Validation
-
-### Unit Tests
-
-```bash
-# Run Kalman filter unit tests
-make test-kalman
-
-# Run intercept solver tests
-make test-intercept
-```
-
-### Integration Tests
-
-```bash
-# Full system test with all 3 scenarios
-./scripts/integration_test.sh
-
-# Watchdog restart test
-./scripts/test_watchdog_recovery.sh
-```
-
-### Stress Tests
-
-```bash
-# CPU hog test
-./scripts/stress_cpu.sh &
-./build/x86_64-debug/hmds
-
-# Memory pressure test
-./scripts/stress_memory.sh &
-./build/x86_64-debug/hmds
-```
-
-**Expected Results**:
-- System remains stable
-- Intercept task gets CPU via APS
-- RTO < 1.5s on task crashes
-
----
-
 ## 📊 Logging & Diagnostics
 
 ### Log Format
@@ -729,7 +655,7 @@ Levels:
 
 ---
 
-## 🎓 Educational Value
+## Overview of HMDS
 
 ### What This Project Teaches
 
@@ -755,12 +681,6 @@ Levels:
 - Signal handling (SIGTERM, SIGINT)
 - Timer management (timer_create, CLOCK_MONOTONIC)
 - Multi-process synchronization
-
-**Embedded Systems**:
-- GPIO control and resource managers
-- Hardware abstraction layers
-- Interrupt handling
-- Memory-mapped I/O
 
 ---
 
@@ -813,50 +733,16 @@ if (altitude < 0.0 || altitude > MAX_ALTITUDE) {
 
 ## 👥 Team
 
-**Team Trident** — Q-eHACK 2026
-
-**Skills Demonstrated**:
-- QNX Neutrino RTOS expertise
-- Real-time systems engineering
-- Multi-process architecture design
-- Safety-critical software standards
-- Performance profiling and optimization
-- Hardware integration (GPIO, Raspberry Pi)
-- Technical documentation
-
----
-
-## 📄 License
-
-MIT License — see [LICENSE](LICENSE) for details.
+**Team Trident** — Team 03 QNX Q-eHACK 2026
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **QNX Software Systems / BlackBerry** - For QNX Neutrino RTOS and excellent documentation
+- **QNX Software Systems & Pi Square Technologies** - For QNX Neutrino RTOS and excellent documentation
 - **Q-eHACK Organizers** - For creating this educational opportunity
-- **Open Source Community** - For POSIX standards and reference implementations
 
 ---
-
-## 📚 References
-
-### QNX Documentation
-- [QNX Neutrino Programmer's Guide](https://www.qnx.com/developers/docs/8.0/index.html)
-- [QNX System Architecture](https://www.qnx.com/developers/docs/8.0/com.qnx.doc.neutrino.sys_arch/topic/about.html)
-- [Adaptive Partitioning Scheduler](https://www.qnx.com/developers/docs/8.0/com.qnx.doc.neutrino.sys_arch/topic/ap.html)
-
-### Academic Papers
-- Welch & Bishop, "An Introduction to the Kalman Filter" (1995)
-- Liu, "Real-Time Systems" (2000)
-- Tanenbaum & Woodhull, "Operating Systems: Design and Implementation" (2006)
-
-### Industry Standards
-- ISO 26262 — Automotive Functional Safety
-- IEC 61508 — Functional Safety of Electrical/Electronic Systems
-- DO-178C — Avionics Software Certification
-- MISRA C — Coding Standards for Safety-Critical Systems
 
 ---
 
